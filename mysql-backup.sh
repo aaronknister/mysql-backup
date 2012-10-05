@@ -1,0 +1,227 @@
+#!/bin/bash
+# Mysql Backup script based on the mysql backup script
+#
+# ChangeLog
+# * Wed Apr 4 2012 Aaron Knister <aaron.knister@gmail.com> 0.1
+# - Initial release
+
+VERSION="0.1"
+MAILER="mail"
+CONFIG_FILE=""
+DEBUG=0
+SUBJECT_FILE=`mktemp`
+MYSQL_DEFAULTS_EXTRA=`mktemp`
+
+usage() {
+	echo "Usage: `basename $0` [-m mailer] [-r recipient] -c <config file> [-V]"
+	echo -e "\t-m\tMailer to use. Default is \"mail\""
+	echo -e "\t-r\tRecipient of email output. Multiple -r options may be specified"
+	echo -e "\t-c\tPath to config file for backup script"
+	echo -e "\t-V\tPrint version"
+}
+
+print_version() {
+	echo "`basename $0` Version $VERSION"
+}
+
+send_mail() {
+	$MAILER -s "`cat $SUBJECT_FILE`" $RECIPIENTS
+}
+
+skip_table_args() {
+	args=
+	for arg in "$@"; do
+		args="$args --ignore-table=$arg"
+	done
+	echo $args
+}
+
+while getopts ":m:r:dc:Vh" opt; do
+	case $opt in
+		m)
+			MAILER=$OPTARG
+			;;
+		r)
+			RECIPIENTS="$RECIPIENTS $OPTARG"
+			;;
+		d)
+			set -x
+                        DEBUG=1
+			;;
+		c)
+			CONFIG_FILE=$OPTARG
+			;;
+		V)
+			print_version
+			exit -1
+			;;
+		h)
+			usage
+			exit -1
+			;;
+		\?)
+			echo "Invalid option specified"
+			usage
+			exit 1
+			;;
+	esac
+done
+
+if [ -z "$RECIPIENTS" ]; then
+	RECIPIENTS="root"
+fi
+
+SUBJECT="[mysql-backup] $HOSTNAME failed"
+echo "$SUBJECT" > $SUBJECT_FILE
+
+if [ -z "$CONFIG_FILE" ]; then
+	echo "Error! No config file specified" 
+	echo "Error! No config file specified" | send_mail
+        exit -1
+fi
+
+LOGFILE=`mktemp`
+
+
+## ITTSSS AAAA TRAPPPP!!
+trap "{ \
+    echo 'Caught signal. Aborting.'
+    echo 'Caught signal. Aborting.' >> $LOGFILE
+    echo '[mysql-backup] $HOSTNAME aborted' > $SUBJECT_FILE
+    cat $LOGFILE | send_mail 
+    rm -f $LOGFILE
+    rm -f $MYSQL_DEFAULTS_EXTRA
+    rm -f $SUBJECT_FILE
+    exit -1
+    }" SIGINT SIGTERM
+
+
+(
+	MYSQL_HOST=''
+	MYSQL_USER=''
+	MYSQL_PSWD=''
+
+	MYSQLDUMP='mysqldump'
+	MYSQLDUMP_ARGS=''
+	GZIP='gzip'
+
+	BACKUP_DIR=''
+
+        if [ ! -e "$CONFIG_FILE" ]; then
+                echo "Error: Config file '$CONFIG_FILE' doesn't exist." >&2
+                exit -1
+        else 
+                . $CONFIG_FILE
+        fi
+
+	_cleanup_and_quit() {
+		if [ -n "$SUBJECT_FILE" ]; then
+				echo -e "$SUBJECT" > $SUBJECT_FILE
+		fi
+		exit $1
+	}
+
+	_exit_fail() {
+		[ -n "$@" ] && echo -e $@
+		_cleanup_and_quit -1
+	}
+
+	_exit_success() {
+		[ -n "$@" ] && echo -e $@
+		_cleanup_and_quit
+		exit 0
+	}
+
+	#
+	# Sanity checks
+	# 
+
+	if [ -z "$MYSQL_HOST" ]; then
+		_exit_fail "Error: '\$MYSQL_HOST' not defined"
+	fi
+
+	if [ -z "$MYSQL_USER" ]; then
+		_exit_fail "Error: '\$MYSQL_USER' not defined"
+	fi
+
+	if [ -z "$MYSQL_PSWD" ]; then
+		_exit_fail "Error: '\$MYSQL_PSWD' not defined"
+	fi
+
+	if [ -z "$MYSQLDUMP" ]; then
+		_exit_fail "Error: '\$MYSQLDUMP' not defined"
+	fi 
+
+	if [ -z "$GZIP" ]; then
+		_exit_fail "Error: '\$GZIP' not defined"
+	fi 
+
+	if [ -z "$BACKUP_DIR" ]; then
+		_exit_fail "Error: '\$BACKUP_DIR' not defined"
+	fi 
+
+	NOW=`date +%F`
+	DB_BACKUP="${BACKUP_DIR}/mysql.$MYSQL_HOST.$NOW.sql.gz"
+
+	#######################
+	# Backup MySQL Tables #
+	#######################
+
+	echo "==== Backing up all MySQL databases on host $MYSQL_HOST ===="
+	echo "Starting at `date`"
+	echo ""
+
+	# Display any skipped tables
+	if [ -n "$MYSQL_SKIP_TABLES" ]; then
+		echo "Skipping tables: "
+		for table in $(echo $MYSQL_SKIP_TABLES | sort -n); do
+			echo -e "\t$table"
+		done
+	fi
+	echo ""
+
+	# Create .cnf file containing password
+	cat > $MYSQL_DEFAULTS_EXTRA << EOF
+[mysqldump]
+password=$MYSQL_PSWD
+EOF
+
+	PIPE_STATUS=''
+	{ $MYSQLDUMP --defaults-extra-file=$MYSQL_DEFAULTS_EXTRA $MYSQLDUMP_ARGS $(skip_table_args $MYSQL_SKIP_TABLES) --host=$MYSQL_HOST --user=$MYSQL_USER --all-databases | $GZIP -c --fast > $DB_BACKUP; PIPE_STATUS=(${PIPESTATUS[@]}) ; }
+	MYSQLDUMP_RC=${PIPE_STATUS[0]}
+	GZIP_RC=${PIPE_STATUS[1]}
+
+	echo "Backup size: `ls -lh \"$DB_BACKUP\" | awk '{ print $5 }'`"
+	echo "mysqldump exit code: $MYSQLDUMP_RC"
+	echo "gzip exit code: $GZIP_RC"
+	echo "Finished at `date`"
+	rm -f $MYSQL_DEFAULTS_EXTRA
+
+	##########################################
+	# Error processing and purge old backups #
+	##########################################
+
+	echo ""
+	echo "==== Purging old backups ===="
+
+	if [ "$MYSQLDUMP_RC" == 0 -a "$GZIP_RC" == 0 ]; then
+		SUBJECT="[mysql-backup] '$MYSQL_HOST' succeeded"
+
+		echo "Files removed, if any:"
+		/usr/bin/find "$BACKUP_DIR" -type f -name 'mysql.*.*.sql.gz' -mtime +2 -print -exec rm -f {} \;
+		echo "Done at `date`."
+
+		_exit_success
+	else
+		echo "Skipping due to previous failures."
+		SUBJECT="[mysql-backup] '$MYSQL_HOST' failed"
+		_exit_fail
+	fi
+
+	_exit_fail "I have NO idea how I got here..."
+) > >(tee $LOGFILE) 2>&1
+
+cat $LOGFILE | send_mail
+
+rm -f $LOGFILE
+rm -f $SUBJECT_FILE

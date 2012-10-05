@@ -160,7 +160,7 @@ trap "{ \
 		_exit_fail "Error: '\$BACKUP_DIR' not defined"
 	fi 
 
-	NOW=`date +%F`
+	NOW=`date '+%FT%H:%M:%S'`
 	DB_BACKUP="${BACKUP_DIR}/mysql.$MYSQL_HOST.$NOW.sql.gz"
 
 	#######################

@@ -163,7 +163,7 @@ trap "{ \
 	else
 		if [ -n "$(echo $DAYS_TO_KEEP | grep '[^0-9]')" ]; then
 			_exit_fail "Error: '\$DAYS_TO_KEEP' contains non-numeric charachters"
-		elif [ $DAYS_TO_KEEP <= 0 ]; then
+		elif [ $DAYS_TO_KEEP -le 0 ]; then
 			_exit_fail "Error: '\$DAYS_TO_KEEP' is not grater than 0"
 		fi
 	fi

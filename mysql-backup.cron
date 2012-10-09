@@ -1,0 +1,1 @@
+0 18 * * * mysql /srv/mysql-backups/bin/mysql-backup -c /srv/mysql-backups/etc/backup.cfg -r dba_team@example.com

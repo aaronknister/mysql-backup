@@ -1,11 +1,8 @@
 #!/bin/bash
 # Mysql Backup script based on the mysql backup script
-#
-# ChangeLog
-# * Wed Apr 4 2012 Aaron Knister <aaron.knister@gmail.com> 0.1
-# - Initial release
+# <aaron.knister@gmail.com>
 
-VERSION="0.1"
+VERSION="0.2"
 MAILER="mail"
 CONFIG_FILE=""
 DEBUG=0
@@ -104,6 +101,7 @@ trap "{ \
 	MYSQLDUMP='mysqldump'
 	MYSQLDUMP_ARGS=''
 	GZIP='gzip'
+	DAYS_TO_KEEP='2'
 
 	BACKUP_DIR=''
 
@@ -160,6 +158,16 @@ trap "{ \
 		_exit_fail "Error: '\$BACKUP_DIR' not defined"
 	fi 
 
+	if [ -z "$DAYS_TO_KEEP" ]; then
+		_exit_fail "Error: '\$DAYS_TO_KEEP' not defined"
+	else
+		if [ -n "$(echo \"$DAYS_TO_KEEP\" | grep '[^0-9]')" ]; then
+			_exit_fail "Error: '\$DAYS_TO_KEEP' contains non-numeric charachters"
+		elif [ $DAYS_TO_KEEP <= 0 ]; then
+			_exit_fail "Error: '\$DAYS_TO_KEEP' is not grater than 0"
+		fi
+	fi
+
 	NOW=`date '+%FT%H:%M:%S'`
 	DB_BACKUP="${BACKUP_DIR}/mysql.$MYSQL_HOST.$NOW.sql.gz"
 
@@ -208,7 +216,7 @@ EOF
 		SUBJECT="[mysql-backup] '$MYSQL_HOST' succeeded"
 
 		echo "Files removed, if any:"
-		/usr/bin/find "$BACKUP_DIR" -type f -name 'mysql.*.*.sql.gz' -mtime +2 -print -exec rm -f {} \;
+		/usr/bin/find "$BACKUP_DIR" -type f -name 'mysql.*.*.sql.gz' -mtime +$DAYS_TO_KEEP -print -exec rm -f {} \;
 		echo "Done at `date`."
 
 		_exit_success

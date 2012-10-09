@@ -1,12 +1,1 @@
 Script for backing up mysql databases with an option for e-mail notification
-
-Installation Instructions
-=========================
-
-1. Create a directory hierarchy for mysql backups and set ownership and permissions
-   - mkdir /srv/mysql-backups/{bin,etc,backups}
-   - chown mysql /srv/mysql-backups/{etc,backups}
-   - chmod 700 /srv/mysql-backups/{etc,backups} 
-2. Copy mysql-backup to /srv/mysql-backups/bin
-3. Modify sample-backup.cfg and copy it to the desired destination as /srv/mysql-backups/etc/backup.cfg (i.e. /srv/mysql-backups/etc)
-4. Modify mysql-backup.cron to your liking and copy to /etc/cron.d/ (being sure to remove the .cron extension)
